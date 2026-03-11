@@ -36,7 +36,6 @@ def list_active_jobs(user_id: int):
 def check_job_status(job_id: int):
     return job_status(job_id)
 
-
 @mcp.tool()
 def get_assigned_worker(job_id: int):
     return get_worker_details(job_id)
