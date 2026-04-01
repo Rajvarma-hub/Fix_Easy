@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  kafka_fix_easy:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: kafka_fix_easy
+    
+    # Expose client (9092) and internal controller (9093) ports to the host
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+      
+    environment:
+      # --- KRaft Configuration ---
+      KAFKA_KRAFT_MODE: "true"
+      CLUSTER_ID: "OrXPK-NQSnuuIbYgQBYLhQ" 
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller 
+      
+      # Using /tmp is generally fine for single-node development setup
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      
+      # --- Listener Definitions (Internal to Docker) ---
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      
+      # --- Advertised Listeners (External / Metadata) ---
+      # This is the address clients (like your Python producer) will use
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      
+      # --- KRaft Quorum & Topic Settings (CRITICAL FIX) ---
+      # FIX: Use the service name (kafka_fix_easy) as the hostname for internal communication
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka_fix_easy:9093 
+      
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+
+    # Map a named volume to persist Kafka data
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    restart: always
+
+volumes:
+  kafka_data:
