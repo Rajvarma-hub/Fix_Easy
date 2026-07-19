@@ -23,12 +23,12 @@ import {
 } from "lucide-react"
 
 const services = [
-  { name: "Plumbing", icon: "", color: "bg-blue-500/10 text-blue-600" },
-  { name: "Electrical", icon: "", color: "bg-yellow-500/10 text-yellow-600" },
-  { name: "Cleaning", icon: "", color: "bg-green-500/10 text-green-600" },
-  { name: "AC Repair", icon: "", color: "bg-cyan-500/10 text-cyan-600" },
-  { name: "Carpentry", icon: "", color: "bg-amber-500/10 text-amber-600" },
-  { name: "Painting", icon: "", color: "bg-pink-500/10 text-pink-600" },
+  { name: "Plumbing", icon: "🔧", color: "bg-blue-500/10 text-blue-600" },
+  { name: "Electrical", icon: "⚡", color: "bg-yellow-500/10 text-yellow-600" },
+  { name: "Cleaning", icon: "✨", color: "bg-green-500/10 text-green-600" },
+  { name: "AC Repair", icon: "❄️", color: "bg-cyan-500/10 text-cyan-600" },
+  { name: "Carpentry", icon: "🪚", color: "bg-amber-500/10 text-amber-600" },
+  { name: "Painting", icon: "🎨", color: "bg-pink-500/10 text-pink-600" },
 ]
 
 const stats = [

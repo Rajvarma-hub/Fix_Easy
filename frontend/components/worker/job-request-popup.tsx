@@ -13,16 +13,9 @@ export function JobRequestPopup() {
   const { toast } = useToast()
   const [isResponding, setIsResponding] = useState(false)
 
-  // Debug logging
-  console.log("[v0] JobRequestPopup: Render check - pendingJobRequest:", pendingJobRequest)
-  console.log("[v0] JobRequestPopup: isConnected:", isConnected)
-
   if (!pendingJobRequest) {
-    console.log("[v0] JobRequestPopup: No pending job, returning null")
     return null
   }
-  
-  console.log("[v0] JobRequestPopup: SHOWING POPUP for job:", pendingJobRequest.service_request_id)
 
   const jobId = pendingJobRequest.service_request_id
   const serviceName = pendingJobRequest.service_category || "Service Request"
@@ -47,10 +40,21 @@ export function JobRequestPopup() {
       return
     }
 
+    // Check WebSocket connection before responding
+    if (!isConnected) {
+      toast({
+        title: "Connection Lost",
+        description: "Reconnecting to server... Please try again in a moment.",
+        variant: "destructive",
+      })
+      // The respondToJob function will attempt reconnection automatically
+    }
+
     setIsResponding(true)
     try {
-
+      // Send response via WebSocket (no REST API call)
       respondToJob(jobId, action)
+      
       toast({
         title: action === "accept" ? "Job Accepted!" : "Job Rejected",
         description:
@@ -62,7 +66,7 @@ export function JobRequestPopup() {
       console.error("Failed to respond to job:", error)
       toast({
         title: "Error",
-        description: "Failed to respond to job request",
+        description: "Failed to respond to job request. Please check your connection.",
         variant: "destructive",
       })
     } finally {

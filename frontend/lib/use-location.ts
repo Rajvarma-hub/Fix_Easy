@@ -107,7 +107,7 @@ export function useLocation(options: UseLocationOptions = {}) {
             callback(loc.latitude, loc.longitude)
           }
         } catch (error) {
-          console.error("[v0] Auto location update failed:", error)
+          console.error("Auto location update failed:", error)
         }
       }, opts.updateInterval)
     },

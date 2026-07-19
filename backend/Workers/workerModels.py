@@ -36,3 +36,6 @@ class Canceljob(BaseModel):
 class Workcompleted(BaseModel):
     otp:str
     job_id:int
+
+class delete_address(BaseModel):
+    location_id:int

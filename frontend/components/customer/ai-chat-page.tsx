@@ -3,6 +3,7 @@
 import type React from "react"
 import { useState, useRef, useEffect } from "react"
 import { aiChat } from "@/lib/api"
+import { useChat } from "@/lib/chat-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,17 +19,8 @@ interface Message {
 }
 
 export function AIChatPage() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      content:
-        "Hello! I'm your ServiceHub AI assistant. How can I help you today? I can help you with:\n\n Finding the right service for your needs\n Understanding our pricing\n Tracking your bookings\n General questions about our platform",
-      timestamp: new Date(),
-    },
-  ])
+  const { messages, isLoading, sendMessage } = useChat()
   const [input, setInput] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -41,37 +33,9 @@ export function AIChatPage() {
     e.preventDefault()
     if (!input.trim() || isLoading) return
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      content: input,
-      timestamp: new Date(),
-    }
-
-    setMessages((prev) => [...prev, userMessage])
+    const content = input
     setInput("")
-    setIsLoading(true)
-
-    try {
-      const response = await aiChat(input)
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: response.response,
-        timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, assistantMessage])
-    } catch (error) {
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: "I'm sorry, I encountered an error. Please try again.",
-        timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, errorMessage])
-    } finally {
-      setIsLoading(false)
-    }
+    await sendMessage(content)
   }
 
   const suggestedQuestions = [

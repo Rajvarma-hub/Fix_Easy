@@ -35,6 +35,24 @@ export function WorkerStatusPage() {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null)
   const [hasRequestedPermission, setHasRequestedPermission] = useState(false)
 
+  // Load current status from profile on mount
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const profile = await api.worker.getProfile()
+        if (profile.is_active === "online") {
+          setIsOnline(true)
+          if (user?.workerId) {
+            connectWorkerWs(user.workerId)
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch initial status:", error)
+      }
+    }
+    fetchStatus()
+  }, [user, connectWorkerWs])
+
   // Request location permission on mount
   useEffect(() => {
     if (!hasRequestedPermission) {
@@ -192,7 +210,7 @@ export function WorkerStatusPage() {
                 <p className="text-xl font-semibold">{isOnline ? "Online" : "Offline"}</p>
                 <p className="text-sm text-muted-foreground">
                   {isOnline
-                    ? `Receiving job notifications  ${isConnected ? "WebSocket Connected" : "Connecting..."}`
+                    ? `Receiving job notifications • ${isConnected ? "WebSocket Connected" : "Connecting..."}`
                     : "You are not receiving notifications"}
                 </p>
               </div>
@@ -232,11 +250,11 @@ export function WorkerStatusPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="p-4 border rounded-lg">
               <Label className="text-sm text-muted-foreground">Latitude</Label>
-              <p className="text-lg font-mono">{latitude !== null ? latitude.toFixed(6) : "--"}</p>
+              <p className="text-lg font-mono">{latitude !== null ? latitude.toFixed(6) : "—"}</p>
             </div>
             <div className="p-4 border rounded-lg">
               <Label className="text-sm text-muted-foreground">Longitude</Label>
-              <p className="text-lg font-mono">{longitude !== null ? longitude.toFixed(6) : "--"}</p>
+              <p className="text-lg font-mono">{longitude !== null ? longitude.toFixed(6) : "—"}</p>
             </div>
           </div>
 

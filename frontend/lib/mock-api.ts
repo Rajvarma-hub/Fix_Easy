@@ -571,25 +571,11 @@ export async function getPendingJobs(): Promise<ServiceRequest[]> {
   return apiFetch("/Workers/pending_jobs")
 }
 
-export async function acceptJob(workerId: string, jobId: string): Promise<ServiceRequest> {
-  await delay(400)
-
-  if (USE_MOCK_API) {
-    const index = serviceRequests.findIndex((r) => r.id === jobId)
-    if (index !== -1) {
-      const worker = workers.find((w) => w.id === workerId)
-      serviceRequests[index].status = "accepted"
-      serviceRequests[index].workerId = workerId
-      serviceRequests[index].workerName = worker?.name
-      return serviceRequests[index]
-    }
-    throw new Error("Job not found")
-  }
-
-  return apiFetch("/Workers/accept_job", {
-    method: "POST",
-    body: JSON.stringify({ jobId }),
-  })
+// DEPRECATED: acceptJob REST API removed - job acceptance is handled via WebSocket only
+// Use respondToJob from websocket-context.tsx instead
+export async function acceptJob(_workerId: string, _jobId: string): Promise<ServiceRequest> {
+  console.warn("acceptJob REST API is deprecated - use WebSocket respondToJob instead")
+  throw new Error("Job acceptance must use WebSocket. Use respondToJob from websocket-context.")
 }
 
 export async function completeJob(workerId: string, jobId: string, otp: string): Promise<ServiceRequest> {

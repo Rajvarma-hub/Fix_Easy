@@ -2,49 +2,60 @@
 
 import { useEffect, useState, useCallback } from "react"
 import { useAuth } from "@/lib/auth-context"
-import { getWorkerTodayEarnings, getWorkerMonthlyEarnings, getWorkerMyJobs } from "@/lib/api"
+import { api } from "@/lib/api"
+import type { ServiceRequest } from "@/lib/types"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { IndianRupee, TrendingUp, Calendar, Briefcase, RefreshCw, CheckCircle } from "lucide-react"
-
-interface CompletedJob {
-  id: number
-  service_name: string
-  location: string
-  city?: string
-  accepted_at: string | null
-  amount: number
-}
+import { DollarSign, TrendingUp, Calendar, Briefcase, RefreshCw } from "lucide-react"
 
 export function EarningsPage() {
   const { user } = useAuth()
 
-  const [todayEarnings, setTodayEarnings] = useState(0)
-  const [monthlyEarnings, setMonthlyEarnings] = useState(0)
-  const [completedJobs, setCompletedJobs] = useState<CompletedJob[]>([])
+  const [todayEarnings, setTodayEarnings] = useState({ amount: 0, jobs: 0 })
+  const [monthlyEarnings, setMonthlyEarnings] = useState({ amount: 0, jobs: 0 })
+  const [recentJobs, setRecentJobs] = useState<ServiceRequest[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
   const loadData = useCallback(async () => {
     if (!user) return
     try {
-      const [todayData, monthlyData, jobsData] = await Promise.all([
-        getWorkerTodayEarnings().catch(() => ({ amount: 0 })),
-        getWorkerMonthlyEarnings().catch(() => ({ amount: 0 })),
-        getWorkerMyJobs().catch(() => ({ pending: [], completed: [], cancelled: [] })),
+      const [today, monthly, jobsResponse] = await Promise.all([
+        api.worker.getTodaysEarnings(),
+        api.worker.getMonthlyEarnings(),
+        api.worker.getMyJobs(),
       ])
-      setTodayEarnings(todayData.amount || 0)
-      setMonthlyEarnings(monthlyData.amount || 0)
-      setCompletedJobs((jobsData.completed || []).slice(0, 15))
+      setTodayEarnings(today)
+      setMonthlyEarnings(monthly)
+
+      const completed = jobsResponse.completed || []
+      const transformedJobs = completed.slice(0, 10).map((job: any) => ({
+        id: job.job_id?.toString() || "",
+        customerId: "",
+        categoryId: "",
+        categoryName: job.service_category || "Unknown Service",
+        addressId: "",
+        address: { street: "", city: "", state: "", zipCode: "" },
+        description: "",
+        status: "completed" as const,
+        price: job.amount || 0,
+        createdAt: job.requested_time || new Date().toISOString(),
+        completedAt: job.completed_time,
+      }))
+      setRecentJobs(transformedJobs)
     } catch (error) {
       console.error("Failed to load earnings:", error)
     }
   }, [user])
 
   useEffect(() => {
-    setIsLoading(true)
-    loadData().finally(() => setIsLoading(false))
+    async function initialLoad() {
+      setIsLoading(true)
+      await loadData()
+      setIsLoading(false)
+    }
+    initialLoad()
   }, [loadData])
 
   const handleRefresh = async () => {
@@ -57,57 +68,24 @@ export function EarningsPage() {
     return (
       <div className="space-y-4">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-32 rounded-2xl" />)}
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={`skeleton-${i}`} className="h-32" />
+          ))}
         </div>
-        <Skeleton className="h-64 rounded-2xl" />
+        <Skeleton className="h-64" />
       </div>
     )
   }
 
-  const totalFromJobs = completedJobs.reduce((sum, j) => sum + (j.amount || 0), 0)
-  const avgPerJob = completedJobs.length > 0 ? (totalFromJobs / completedJobs.length) : 0
-
-  const stats = [
-    {
-      label: "Today's Earnings",
-      value: `Rs.${todayEarnings.toFixed(0)}`,
-      sub: "Jobs completed today",
-      icon: IndianRupee,
-      color: "text-emerald-600",
-      bg: "bg-emerald-50 dark:bg-emerald-950",
-    },
-    {
-      label: "This Month",
-      value: `Rs.${monthlyEarnings.toFixed(0)}`,
-      sub: "Monthly total",
-      icon: TrendingUp,
-      color: "text-blue-600",
-      bg: "bg-blue-50 dark:bg-blue-950",
-    },
-    {
-      label: "Completed Jobs",
-      value: completedJobs.length,
-      sub: "In recent history",
-      icon: Briefcase,
-      color: "text-violet-600",
-      bg: "bg-violet-50 dark:bg-violet-950",
-    },
-    {
-      label: "Avg. Per Job",
-      value: `Rs.${avgPerJob.toFixed(0)}`,
-      sub: "Recent average",
-      icon: Calendar,
-      color: "text-amber-600",
-      bg: "bg-amber-50 dark:bg-amber-950",
-    },
-  ]
+  const avgPerJob =
+    recentJobs.length > 0 ? (recentJobs.reduce((sum, job) => sum + job.price, 0) / recentJobs.length).toFixed(2) : "0"
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">Earnings</h2>
-          <p className="text-muted-foreground text-sm">Track your income and job performance</p>
+          <p className="text-muted-foreground">Track your income and performance</p>
         </div>
         <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
           <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
@@ -115,65 +93,83 @@ export function EarningsPage() {
         </Button>
       </div>
 
-      {/* Stats */}
+      {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {stats.map((s, i) => {
-          const Icon = s.icon
-          return (
-            <Card key={i} className="border shadow-sm hover:shadow-md transition-shadow">
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-medium text-muted-foreground">{s.label}</span>
-                  <div className={`h-9 w-9 rounded-xl ${s.bg} flex items-center justify-center`}>
-                    <Icon className={`h-4 w-4 ${s.color}`} />
-                  </div>
-                </div>
-                <div className="text-2xl font-bold">{s.value}</div>
-                <p className="text-xs text-muted-foreground mt-1">{s.sub}</p>
-              </CardContent>
-            </Card>
-          )
-        })}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Today's Earnings</CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">${todayEarnings.amount}</div>
+            <p className="text-xs text-muted-foreground">{todayEarnings.jobs} jobs completed</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">This Month</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">${monthlyEarnings.amount}</div>
+            <p className="text-xs text-muted-foreground">{monthlyEarnings.jobs} jobs completed</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Total Jobs</CardTitle>
+            <Briefcase className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{recentJobs.length}</div>
+            <p className="text-xs text-muted-foreground">Recent completed</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Avg. Per Job</CardTitle>
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">${avgPerJob}</div>
+            <p className="text-xs text-muted-foreground">Recent average</p>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Recent Earnings */}
+      {/* Earnings Breakdown */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Recent Completed Jobs</CardTitle>
-          <CardDescription>Your last {completedJobs.length} completed jobs</CardDescription>
+          <CardTitle>Recent Earnings</CardTitle>
+          <CardDescription>Your completed jobs and earnings</CardDescription>
         </CardHeader>
         <CardContent>
-          {completedJobs.length === 0 ? (
-            <div className="text-center py-10">
-              <div className="h-14 w-14 rounded-2xl bg-muted flex items-center justify-center mx-auto mb-3">
-                <IndianRupee className="h-6 w-6 opacity-40" />
-              </div>
-              <p className="text-sm font-medium text-muted-foreground">No earnings yet</p>
-              <p className="text-xs text-muted-foreground mt-1">Complete jobs to start earning!</p>
+          {recentJobs.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <DollarSign className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>No earnings yet. Complete jobs to start earning!</p>
             </div>
           ) : (
-            <div className="space-y-2">
-              {completedJobs.map((job, index) => (
+            <div className="space-y-4">
+              {recentJobs.map((job, index) => (
                 <div
-                  key={job.id || index}
-                  className="flex items-center gap-4 p-3 rounded-xl hover:bg-muted/50 transition-colors"
+                  key={job.id || `earning-${index}`}
+                  className="flex items-center justify-between p-4 border rounded-lg"
                 >
-                  <div className="h-9 w-9 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
-                    <CheckCircle className="h-4 w-4 text-emerald-600" />
+                  <div className="flex items-center gap-4">
+                    <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
+                      <DollarSign className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium">{job.categoryName}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {job.completedAt
+                          ? new Date(job.completedAt).toLocaleDateString()
+                          : new Date(job.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{job.service_name || "Service Job"}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {job.accepted_at
-                        ? new Date(job.accepted_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
-                        : "--"
-                      }
-                      {job.city ? `  ${job.city}` : ""}
-                    </p>
-                  </div>
-                  <span className="font-semibold text-emerald-600 text-sm flex-shrink-0">
-                    +Rs.{job.amount > 0 ? job.amount.toFixed(0) : "--"}
-                  </span>
+                  <span className="font-semibold text-green-600">+${job.price}</span>
                 </div>
               ))}
             </div>

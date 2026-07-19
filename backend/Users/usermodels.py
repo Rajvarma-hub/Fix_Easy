@@ -54,6 +54,9 @@ class review(BaseModel):
     rating:int
     comments:str
 
+class delete_address(BaseModel):
+    location_id:int
+    
 import random
 
 def generate_txn_id():

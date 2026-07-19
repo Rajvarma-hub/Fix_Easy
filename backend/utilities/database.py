@@ -1,3 +1,4 @@
+import os
 from sqlalchemy import (
     Float, Boolean, Column, String, Integer,
     func, DateTime, Text, Enum as sqlenum,
@@ -8,11 +9,11 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from enum import Enum
 
 Base = declarative_base()
-DATABASE_URL="postgresql://postgres:password1234@postgres:5432/mydb"
+
+DATABASE_URL = "postgresql://postgres:password1234@localhost/fixeasy"
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-
 
 def get_db():
     db = SessionLocal()
@@ -86,7 +87,6 @@ class Workers(Base):
         secondary="worker_service",
         back_populates="workers"
     )
-
 
 class WorkerStatus(Base):
     __tablename__ = "workers_status"

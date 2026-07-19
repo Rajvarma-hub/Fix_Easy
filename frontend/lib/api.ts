@@ -1,8 +1,66 @@
-// Real API client - connects to FastAPI backend
-// Base URL from environment variables
+import type { ServiceRequest, Review, ServiceCategory, AdminWorker } from "./types"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
-const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8000"
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000"
+const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://127.0.0.1:8000"
+
+// Export base URLs for debugging/display
+export { API_BASE_URL, WS_BASE_URL }
+
+// ==================== UTILITY FUNCTIONS ====================
+
+// Safe string extractor - handles null/undefined
+function safeString(value: unknown, defaultValue = ""): string {
+  if (value === null || value === undefined) return defaultValue
+  return String(value)
+}
+
+// Safe number extractor - handles string numbers from backend
+function safeNumber(value: unknown, defaultValue = 0): number {
+  if (value === null || value === undefined) return defaultValue
+  const num = typeof value === "string" ? parseFloat(value) : Number(value)
+  return isNaN(num) ? defaultValue : num
+}
+
+// API Error class for better error handling
+export class APIError extends Error {
+  status: number
+  code?: string
+
+  constructor(message: string, status: number, code?: string) {
+    super(message)
+    this.name = "APIError"
+    this.status = status
+    this.code = code
+  }
+}
+
+// Extract user-friendly error message from API errors
+export function getErrorMessage(error: unknown): string {
+  if (error instanceof APIError) {
+    return error.message
+  }
+  if (error instanceof Error) {
+    // Handle common backend error patterns
+    const msg = error.message
+    if (msg.includes("401") || msg.includes("Unauthorized")) {
+      return "Please login again"
+    }
+    if (msg.includes("403") || msg.includes("Forbidden")) {
+      return "You don't have permission to do this"
+    }
+    if (msg.includes("404") || msg.includes("Not found")) {
+      return "Resource not found"
+    }
+    if (msg.includes("500") || msg.includes("Internal")) {
+      return "Server error - please try again later"
+    }
+    if (msg.includes("Network") || msg.includes("fetch")) {
+      return "Network error - please check your connection"
+    }
+    return msg
+  }
+  return "An unexpected error occurred"
+}
 
 // Token storage key
 const TOKEN_KEY = "service_booking_token"
@@ -55,12 +113,16 @@ async function apiFetch<T>(endpoint: string, options?: RequestInit & { skipAuth?
   }
 
   if (response.status === 403) {
-    throw new Error("Forbidden - You do not have permission")
+    throw new APIError("Forbidden - You do not have permission", 403, "FORBIDDEN")
   }
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}))
-    throw new Error(errorData.detail || `API Error: ${response.status}`)
+    throw new APIError(
+      errorData.detail || errorData.message || `API Error: ${response.status}`,
+      response.status,
+      errorData.code,
+    )
   }
 
   // Handle empty responses
@@ -144,11 +206,12 @@ export interface UserSignupInput {
 }
 
 export async function signupUser(data: UserSignupInput): Promise<number> {
-  return apiFetch("/users/signup", {
+  const response = await apiFetch<{ user_id: number }>("/users/signup", {
     method: "POST",
     body: JSON.stringify(data),
     skipAuth: true,
   })
+  return response.user_id
 }
 
 // ==================== USER PROFILE ====================
@@ -158,6 +221,7 @@ export interface UserProfile {
   dob: string
   email: string
   phone: string
+  is_active?: string
 }
 
 export async function getUserProfile(): Promise<UserProfile> {
@@ -250,7 +314,7 @@ export async function createServiceRequest(
 // ==================== USER JOB HISTORY ====================
 
 export interface JobHistoryItem {
-  job_id?: number
+  job_id: number // Required - backend always returns this
   service_category: string
   location_details: {
     house_no: string
@@ -269,10 +333,13 @@ export interface JobHistoryItem {
   }
   otp?: string
   amount?: number
+  payment_status?: string
+  is_rated?: boolean
 }
 
 export async function getUserJobHistory(): Promise<JobHistoryItem[]> {
-  return apiFetch("/users/history")
+  const response = await apiFetch<unknown[]>("/users/history")
+  return response.map((job) => transformJobHistoryItem(job as Record<string, unknown>))
 }
 
 // ==================== CANCEL JOB ====================
@@ -282,7 +349,7 @@ export async function cancelUserJob(jobId: number): Promise<{ message: string }>
   if (!id || isNaN(id)) {
     throw new Error("Invalid job ID")
   }
-  return apiFetch("/users/users/CancellJob", {
+  return apiFetch("/users/CancellJob", {
     method: "POST",
     body: JSON.stringify({ job_id: id }),
   })
@@ -329,17 +396,19 @@ export interface ReviewInput {
 }
 
 export async function submitReview(data: ReviewInput): Promise<string> {
-  return apiFetch("/users/review", {
+  const response = await apiFetch<{ message: string }>("/users/review", {
     method: "POST",
     body: JSON.stringify(data),
   })
+  return response.message
 }
 
 // ==================== AI CHAT ====================
 
 export async function aiChat(query: string): Promise<{ response: string }> {
-  return apiFetch(`/users/AIChat?query=${encodeURIComponent(query)}`, {
+  return apiFetch("/users/AIChat", {
     method: "POST",
+    body: JSON.stringify({ query }),
   })
 }
 
@@ -354,11 +423,12 @@ export interface WorkerSignupInput {
 }
 
 export async function signupWorker(data: WorkerSignupInput): Promise<number> {
-  return apiFetch("/Workers/signup", {
+  const response = await apiFetch<{ worker_id: number }>("/Workers/signup", {
     method: "POST",
     body: JSON.stringify(data),
     skipAuth: true,
   })
+  return response.worker_id
 }
 
 // ==================== WORKER CAPABILITY ====================
@@ -370,11 +440,18 @@ export async function addWorkerCapability(workerCapability: number[]): Promise<{
   })
 }
 
+export async function removeWorkerCapability(workerCapability: number[]): Promise<{ message: string }> {
+  return apiFetch("/Workers/RemoveWorkerCapability", {
+    method: "POST",
+    body: JSON.stringify({ worker_capability: workerCapability }),
+  })
+}
+
 export async function getWorkerCapabilities(): Promise<string[]> {
   try {
     // Get worker profile which includes capabilities
-    const profile = await apiFetch<{ capabilities?: string[] }>("/Workers/Profile_details")
-    return profile.capabilities || []
+    const profile = await apiFetch<{ capabilities?: number[] }>("/Workers/Profile_details")
+    return (profile.capabilities || []).map(id => id.toString())
   } catch {
     return []
   }
@@ -449,16 +526,24 @@ export async function getWorkerJobStats(): Promise<WorkerJobStats> {
 
 // ==================== WORKER MY JOBS ====================
 export interface WorkerJob {
-  id: number
-  service_name: string
-  customer_name: string
+  job_id: number
+  service_category: string
+  location_details: {
+    house_no: string
+    city: string
+    state: string
+    country: string
+    pincode: string
+  }
+  requested_time: string
   description: string
-  location: string
-  city?: string
-  state?: string
   status: string
-  accepted_at: string | null
-  amount: number
+  customer_details?: {
+    customer_name: string | null
+    customer_phone: string | null
+  }
+  otp?: string
+  amount?: number
 }
 
 export interface WorkerJobsResponse {
@@ -468,14 +553,46 @@ export interface WorkerJobsResponse {
 }
 
 export async function getWorkerMyJobs(): Promise<WorkerJobsResponse> {
-  const jobs = await apiFetch<WorkerJob[]>("/Workers/my_jobs")
-  const arr = Array.isArray(jobs) ? jobs : []
+  const response = await apiFetch<{
+    pending?: unknown[]
+    completed?: unknown[]
+    cancelled?: unknown[]
+  }>("/Workers/my_jobs")
+  
+  // Transform each job category and handle missing fields
+  const transformWorkerJobItem = (job: Record<string, unknown>): WorkerJob => ({
+    job_id: safeNumber(job.job_id || job.id),
+    service_category: safeString(job.service_category || job.service_name),
+    location_details: job.location_details
+      ? (job.location_details as WorkerJob["location_details"])
+      : {
+          house_no: safeString(job.house_no),
+          city: safeString(job.city),
+          state: safeString(job.state),
+          country: safeString(job.country, "India"),
+          pincode: safeString(job.pincode),
+        },
+    requested_time: safeString(job.requested_time || job.created_at),
+    description: safeString(job.description || job.service_description),
+    status: safeString(job.status, "pending"),
+    customer_details: job.customer_details
+      ? (job.customer_details as WorkerJob["customer_details"])
+      : {
+          customer_name: safeString(job.customer_name) || null,
+          customer_phone: safeString(job.customer_phone) || null,
+        },
+    otp: safeString(job.otp) || undefined,
+    amount: safeNumber(job.amount) || undefined,
+  })
+
   return {
-    pending: arr.filter((j) => j.status?.toLowerCase() === "assigned" || j.status?.toLowerCase() === "pending"),
-    completed: arr.filter((j) => j.status?.toLowerCase() === "completed"),
-    cancelled: arr.filter((j) => j.status?.toLowerCase() === "cancelled"),
+    pending: (response.pending || []).map((job) => transformWorkerJobItem(job as Record<string, unknown>)),
+    completed: (response.completed || []).map((job) => transformWorkerJobItem(job as Record<string, unknown>)),
+    cancelled: (response.cancelled || []).map((job) => transformWorkerJobItem(job as Record<string, unknown>)),
   }
 }
+
+
 
 // ==================== WORKER EARNINGS ====================
 
@@ -489,8 +606,12 @@ export async function getWorkerMonthlyEarnings(): Promise<{ message: string; amo
 
 // ==================== WORKER RATING ====================
 
-export async function getWorkerRating(): Promise<{ Average_rating: number }> {
-  return apiFetch("/Workers/rating")
+export async function getWorkerRating(): Promise<{ rating: number, totalReviews: number, distribution: Record<number, number> }> {
+  return apiFetch("/Workers/Rating")
+}
+
+export async function getWorkerReviews(): Promise<Review[]> {
+  return apiFetch("/Workers/Reviews")
 }
 
 // ==================== ADMIN SIGNUP ====================
@@ -502,11 +623,12 @@ export interface AdminSignupInput {
 }
 
 export async function signupAdmin(data: AdminSignupInput): Promise<number> {
-  return apiFetch("/admin/signup", {
+  const response = await apiFetch<{ admin_id: number }>("/admin/signup", {
     method: "POST",
     body: JSON.stringify(data),
     skipAuth: true,
   })
+  return response.admin_id
 }
 
 // ==================== ADMIN SERVICE CATEGORIES ====================
@@ -537,13 +659,7 @@ export async function getAdminServiceCategories(): Promise<AdminServiceCategory[
 
 // ==================== SERVICE CATEGORIES (for customers) ====================
 
-export interface ServiceCategory {
-  service_id: number
-  name: string
-  description: string
-  base_price: number
-  icon?: string
-}
+
 
 export async function getServiceCategories(): Promise<ServiceCategory[]> {
   const categories = await getAdminServiceCategories()
@@ -557,25 +673,18 @@ export async function getServiceCategories(): Promise<ServiceCategory[]> {
 
 // ==================== ADMIN WORKERS ====================
 
-export interface AdminWorker {
-  id: number
-  name: string
-  dob: string
-  phone: string
-  email: string
-  is_active: boolean
-  capabilities: string[]
-}
+
 
 export async function getAdminWorkers(): Promise<AdminWorker[]> {
   return apiFetch("/admin/workers")
 }
 
 export async function deleteWorker(workerId: number): Promise<string> {
-  return apiFetch("/admin/DeleteWorker", {
+  const response = await apiFetch<{ message: string }>("/admin/DeleteWorker", {
     method: "DELETE",
     body: JSON.stringify({ id: workerId }),
   })
+  return response.message
 }
 
 export interface WorkerDetails {
@@ -633,40 +742,113 @@ export interface PendingJobsResponse {
 }
 
 export async function getWorkerPendingJobs(): Promise<PendingJobsResponse> {
-  const jobs = await apiFetch<PendingJob[]>("/Workers/pending_jobs")
-  // Backend returns array directly, wrap in {jobs: [...]}
-  return { jobs: Array.isArray(jobs) ? jobs : [] }
+  const response = await apiFetch<{ jobs?: unknown[] } | unknown[]>("/Workers/pending_jobs")
+  
+  // Handle both { jobs: [...] } and direct array responses
+  const rawJobs = Array.isArray(response) ? response : (response.jobs || [])
+  
+  return {
+    jobs: rawJobs.map((job) => transformPendingJob(job as Record<string, unknown>)),
+  }
 }
 
-// NOTE: Job accept/reject is done via WebSocket (respondToJob in websocket-context.tsx)
-// This REST endpoint does NOT exist on the backend - kept for reference only
-export async function acceptWorkerJob(jobId: number): Promise<{ message: string }> {
-  console.warn("acceptWorkerJob REST call - use WebSocket respondToJob() instead")
-  return { message: "Use WebSocket to accept/reject jobs" }
+// NOTE: acceptWorkerJob REST API removed - job acceptance is handled via WebSocket only
+// Use respondToJob from websocket-context.tsx instead
+
+// ==================== DATA TRANSFORMATION UTILITIES ====================
+
+// Transform flat backend location to nested location_details
+export function transformLocation(flat: {
+  house_no?: string
+  city?: string
+  state?: string
+  country?: string
+  pincode?: string | number
+  latitude?: number
+  longitude?: number
+}): {
+  house_no: string
+  city: string
+  state: string
+  country: string
+  pincode: string
+} {
+  return {
+    house_no: safeString(flat.house_no),
+    city: safeString(flat.city),
+    state: safeString(flat.state),
+    country: safeString(flat.country, "India"),
+    pincode: safeString(flat.pincode),
+  }
 }
 
-// ==================== NAMESPACED API OBJECT ====================
+// Transform backend job response to frontend JobHistoryItem format
+export function transformJobHistoryItem(backendJob: Record<string, unknown>): JobHistoryItem {
+  // Handle both nested and flat location structures
+  const locationDetails = backendJob.location_details
+    ? (backendJob.location_details as JobHistoryItem["location_details"])
+    : transformLocation(backendJob as Record<string, string | number | undefined>)
 
-import type { ServiceRequest } from "./types"
+  // Handle both nested and flat worker details
+  const workerDetails = backendJob.worker_details
+    ? (backendJob.worker_details as JobHistoryItem["worker_details"])
+    : {
+        worker_name: safeString(backendJob.worker_name) || null,
+        worker_phone: safeString(backendJob.worker_phone) || null,
+        worker_id: safeNumber(backendJob.worker_id) || undefined,
+      }
+
+  return {
+    job_id: safeNumber(backendJob.job_id || backendJob.id),
+    service_category: safeString(backendJob.service_category || backendJob.service_name),
+    location_details: locationDetails,
+    requested_time: safeString(backendJob.requested_time || backendJob.created_at),
+    description: safeString(backendJob.description || backendJob.service_description),
+    status: safeString(backendJob.status, "pending"),
+    worker_details: workerDetails,
+    otp: safeString(backendJob.otp) || undefined,
+    amount: safeNumber(backendJob.amount) || undefined,
+    payment_status: safeString(backendJob.payment_status) || undefined,
+    is_rated: backendJob.is_rated === true,
+  }
+}
+
+// Transform backend pending job to frontend PendingJob format
+export function transformPendingJob(backendJob: Record<string, unknown>): PendingJob {
+  return {
+    job_id: safeNumber(backendJob.job_id || backendJob.id || backendJob.service_request_id),
+    service_name: safeString(backendJob.service_name || backendJob.service_category),
+    customer_name: safeString(backendJob.customer_name || backendJob.user_name),
+    description: safeString(backendJob.description || backendJob.service_description),
+    house_no: safeString(backendJob.house_no),
+    city: safeString(backendJob.city),
+    state: safeString(backendJob.state),
+    pincode: safeNumber(backendJob.pincode),
+    country: safeString(backendJob.country, "India"),
+    requested_time: safeString(backendJob.requested_time || backendJob.created_at),
+  }
+}
 
 // Helper to transform WorkerJob to ServiceRequest format
 function transformWorkerJob(job: WorkerJob): ServiceRequest {
   return {
-    id: job.id?.toString() || "",
-    customerId: job.customer_name || "",
+    id: job.job_id?.toString() || "",
+    customerId: job.customer_details?.customer_name || "",
     categoryId: "",
-    categoryName: job.service_name || "Unknown Service",
+    categoryName: job.service_category || "Unknown Service",
     addressId: "",
     address: {
-      street: job.location || "",
-      city: job.city || "",
-      state: job.state || "",
-      zipCode: "",
+      street: job.location_details?.house_no || "",
+      city: job.location_details?.city || "",
+      state: job.location_details?.state || "",
+      zipCode: job.location_details?.pincode || "",
     },
     description: job.description || "",
     status: (job.status?.toLowerCase() || "pending") as ServiceRequest["status"],
     price: job.amount || 0,
-    createdAt: job.accepted_at || new Date().toISOString(),
+    otp: job.otp,
+    createdAt: job.requested_time || new Date().toISOString(),
+    customerPhone: job.customer_details?.customer_phone || undefined,
   }
 }
 
@@ -751,20 +933,22 @@ export const api = {
         return []
       }
     },
-    // Get active jobs (assigned jobs for worker)
+    // Get active jobs (pending jobs that are assigned to worker)
     getActiveJobs: async (): Promise<ServiceRequest[]> => {
       try {
         const response = await getWorkerMyJobs()
-        return (response.pending || []).map(transformWorkerJob)
+        const pending = response.pending || []
+        return pending.map(transformWorkerJob)
       } catch (error) {
         console.error("Failed to get active jobs:", error)
         return []
       }
     },
-    // Accept job
-    acceptJob: async (jobId: string | number): Promise<{ message: string }> => {
-      const id = typeof jobId === "string" ? Number.parseInt(jobId) : jobId
-      return acceptWorkerJob(id)
+    // Accept job - NOTE: This is deprecated, use WebSocket respondToJob instead
+    // Job acceptance should go through WebSocket for real-time communication
+    acceptJob: async (_jobId: string | number): Promise<{ message: string }> => {
+      console.warn("api.worker.acceptJob is deprecated - use WebSocket respondToJob instead")
+      throw new Error("Job acceptance must use WebSocket. Use respondToJob from websocket-context.")
     },
     // Complete job
     completeJob: async (jobId: number | string, otp: string) => {
@@ -800,12 +984,20 @@ export const api = {
       }
     },
     // Get rating
-    getRating: async () => {
+    getRating: async (): Promise<{ rating: number, totalReviews: number, distribution: Record<number, number> }> => {
       try {
         const result = await getWorkerRating()
-        return { rating: result.Average_rating || 0, totalReviews: 0 }
+        return result
       } catch {
-        return { rating: 0, totalReviews: 0 }
+        return { rating: 0, totalReviews: 0, distribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } }
+      }
+    },
+    // Fetch worker reviews
+    getReviews: async (): Promise<Review[]> => {
+      try {
+        return await getWorkerReviews()
+      } catch {
+        return []
       }
     },
     // Get pending jobs

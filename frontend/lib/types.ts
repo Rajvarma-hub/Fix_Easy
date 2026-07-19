@@ -32,7 +32,7 @@ export interface ServiceCategory {
 }
 
 export interface JobHistoryItem {
-  job_id: number
+  job_id: number // Required - backend always returns this
   service_category: string
   location_details: {
     house_no: string
@@ -51,6 +51,8 @@ export interface JobHistoryItem {
   }
   otp?: string
   amount?: number
+  payment_status?: string
+  is_rated?: boolean
 }
 
 export interface PaymentHistoryItem {

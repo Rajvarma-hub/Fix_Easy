@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from "react"
 
-const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8000"
+const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://127.0.0.1:8000"
 
 export interface JobRequestPayload {
   topic_name: "job_request"
@@ -141,118 +141,95 @@ export function WorkerWebSocketProvider({ children }: { children: ReactNode }) {
 
   const connect = useCallback((workerId: number) => {
     if (!workerId || typeof workerId !== "number" || workerId <= 0 || isNaN(workerId)) {
-      console.log("[v0] Worker WebSocket: Invalid workerId, skipping connection:", workerId)
       return
     }
 
     // Prevent multiple simultaneous connection attempts (React StrictMode fix)
     if (isConnectingRef.current) {
-      console.log("[v0] Worker WebSocket: Connection already in progress, skipping")
       return
     }
 
     // Already connected to this worker
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && workerIdRef.current === workerId) {
-      console.log("[v0] Worker WebSocket: Already connected to worker", workerId)
       return
     }
 
     // WebSocket is connecting
     if (wsRef.current && wsRef.current.readyState === WebSocket.CONNECTING) {
-      console.log("[v0] Worker WebSocket: Already connecting, skipping duplicate")
       return
     }
 
     // Close existing connection if connecting to different worker
     if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
-      console.log("[v0] Worker WebSocket: Closing existing connection")
       wsRef.current.close()
     }
 
     isConnectingRef.current = true
     workerIdRef.current = workerId
     const url = `${WS_BASE_URL}/ws/${workerId}`
-    console.log("[v0] Worker WebSocket: Connecting to", url)
 
     try {
       const ws = new WebSocket(url)
       wsRef.current = ws
 
       ws.onopen = () => {
-        console.log("[v0] Worker WebSocket: Connected successfully!")
         isConnectingRef.current = false
         setIsConnected(true)
         reconnectAttemptsRef.current = 0
       }
 
       ws.onmessage = (event) => {
-        console.log("[v0] Worker WebSocket: RAW message received:", event.data)
         try {
           const message = JSON.parse(event.data)
-          console.log("[v0] Worker WebSocket: Parsed message:", JSON.stringify(message, null, 2))
-          console.log("[v0] Worker WebSocket: Message keys:", Object.keys(message))
-          console.log("[v0] Worker WebSocket: topic_name =", message.topic_name)
-          console.log("[v0] Worker WebSocket: type =", message.type)
-          console.log("[v0] Worker WebSocket: event =", message.event)
-          console.log("[v0] Worker WebSocket: action =", message.action)
-          
           setMessages((prev) => [...prev, message])
           setLastMessage(message)
 
-          // Backend sends: { type: "JOB_NOTIFICATION", message: "...", payload: { topic_name, service_request_id, ... } }
-          // Extract the inner payload if present (nested structure from backend)
-          const innerPayload = message.payload || message
-
-          const isJobRequest =
-            message.type === "JOB_NOTIFICATION" ||
-            innerPayload.topic_name === "job_request" ||
-            (innerPayload.service_request_id && innerPayload.service_category)
+          // Check for job request with multiple possible formats
+          const isJobRequest = 
+            message.topic_name === "job_request" ||
+            message.topic_name === "Job_Requested" ||
+            message.topic_name === "job_requested" ||
+            message.type === "job_request" ||
+            message.type === "Job_Requested" ||
+            message.type === "job_requested" ||
+            message.type === "NEW_JOB" ||
+            message.event === "job_request" ||
+            message.action === "job_request" ||
+            (message.service_request_id && message.service_category) // fallback: has job-like structure
 
           if (isJobRequest) {
-            console.log("[v0] Worker WebSocket: JOB REQUEST MATCHED!", message)
             playNotificationSound()
-            const src = innerPayload as Record<string, unknown>
+            // Normalize the payload to match JobRequestPayload interface
             const jobPayload: JobRequestPayload = {
               topic_name: "job_request",
-              service_request_id: (src.service_request_id || src.job_id || src.id) as number,
-              service_id: src.service_id as number,
-              service_category: (src.service_category || src.category || src.service_name || "Service Request") as string,
-              service_location: (src.service_location || src.location || {
-                house_no: src.house_no || "",
-                latitude: src.latitude || 0,
-                longitude: src.longitude || 0,
-                city: src.city || "",
-                pincode: src.pincode || "",
-                state: src.state || "",
-                country: src.country || "India",
-              }) as JobRequestPayload["service_location"],
-              service_description: (src.service_description || src.description || "") as string,
+              service_request_id: message.service_request_id || message.job_id || message.id,
+              service_id: message.service_id,
+              service_category: message.service_category || message.category || message.service_name || "Service Request",
+              service_location: message.service_location || message.location || {
+                house_no: message.house_no || "",
+                latitude: message.latitude || 0,
+                longitude: message.longitude || 0,
+                city: message.city || "",
+                pincode: message.pincode || "",
+                state: message.state || "",
+                country: message.country || "India",
+              },
+              service_description: message.service_description || message.description || "",
             }
-            console.log("[v0] Worker WebSocket: Setting pendingJobRequest:", jobPayload)
             setPendingJobRequest(jobPayload)
           } else if (message.topic_name === "payment_notification" || message.type === "payment_notification") {
-            console.log("[v0] Worker WebSocket: Payment notification received!", message)
             playNotificationSound()
             setPaymentNotification(message as PaymentNotificationPayload)
           } else if (message.type === "JOB_CANCELLED" || message.topic_name === "job_cancelled") {
-            console.log("[v0] Worker WebSocket: Job cancelled notification!", message)
             playNotificationSound()
             setJobCancellation(message as JobCancelledPayload)
-          } else {
-            console.log("[v0] Worker WebSocket: UNMATCHED message type - no handler for:", {
-              topic_name: message.topic_name,
-              type: message.type,
-              event: message.event,
-              action: message.action
-            })
           }
         } catch (error) {
-          console.error("[v0] Worker WebSocket: Parse error:", error, "Raw data:", event.data)
+          console.error("Worker WebSocket: Parse error:", error)
         }
       }
 
       ws.onclose = (event) => {
-        console.log("[v0] Worker WebSocket: Connection closed, code:", event.code)
         isConnectingRef.current = false
         setIsConnected(false)
 
@@ -265,7 +242,6 @@ export function WorkerWebSocketProvider({ children }: { children: ReactNode }) {
         ) {
           reconnectAttemptsRef.current++
           const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000)
-          console.log(`[v0] Worker WebSocket: Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current})`)
           reconnectTimeoutRef.current = setTimeout(() => {
             if (workerIdRef.current && workerIdRef.current > 0) {
               connect(workerIdRef.current)
@@ -274,19 +250,17 @@ export function WorkerWebSocketProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      ws.onerror = (error) => {
-        console.error("[v0] Worker WebSocket: Error:", error)
+      ws.onerror = () => {
         isConnectingRef.current = false
       }
     } catch (error) {
-      console.error("[v0] Worker WebSocket: Failed to create connection:", error)
+      console.error("Worker WebSocket: Failed to create connection:", error)
       isConnectingRef.current = false
       setIsConnected(false)
     }
   }, [])
 
   const disconnect = useCallback(() => {
-    console.log("[v0] Worker WebSocket: Disconnecting...")
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current)
     }
@@ -304,20 +278,42 @@ export function WorkerWebSocketProvider({ children }: { children: ReactNode }) {
     setLastMessage(null)
   }, [])
 
-  const respondToJob = useCallback((serviceRequestId: number, action: "accept" | "reject") => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+  const respondToJob = useCallback(
+    (serviceRequestId: number, action: "accept" | "reject") => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        // Try to reconnect if disconnected
+        if (workerIdRef.current && workerIdRef.current > 0) {
+          connect(workerIdRef.current)
+          // Queue the response to be sent after reconnection
+          setTimeout(() => {
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              const response = {
+                type: "JOB_RESPONSE",
+                action: action,
+                service_request_id: serviceRequestId,
+                job_id: serviceRequestId, // Include job_id for compatibility
+                worker_id: workerIdRef.current,
+              }
+              wsRef.current.send(JSON.stringify(response))
+              setPendingJobRequest(null)
+            }
+          }, 1000)
+        }
+        return
+      }
+
       const response = {
         type: "JOB_RESPONSE",
         action: action,
         service_request_id: serviceRequestId,
+        job_id: serviceRequestId, // Include job_id for compatibility
+        worker_id: workerIdRef.current,
       }
-      console.log("[v0] Worker WebSocket: Sending job response:", response)
       wsRef.current.send(JSON.stringify(response))
       setPendingJobRequest(null)
-    } else {
-      console.error("[v0] Worker WebSocket: Cannot send response - not connected")
-    }
-  }, [])
+    },
+    [connect],
+  )
 
   const clearPendingJob = useCallback(() => {
     setPendingJobRequest(null)
@@ -410,41 +406,35 @@ export function CustomerJobWebSocketProvider({ children }: { children: ReactNode
 
   const connectToJob = useCallback((serviceRequestId: number) => {
     if (!serviceRequestId || typeof serviceRequestId !== "number" || serviceRequestId <= 0) {
-      console.log("[v0] Customer WebSocket: Invalid serviceRequestId:", serviceRequestId)
       return
     }
 
     if (connectionsRef.current.has(serviceRequestId)) {
-      console.log("[v0] Customer WebSocket: Already connected to job", serviceRequestId)
       return
     }
 
     const url = `${WS_BASE_URL}/ws/user/job/${serviceRequestId}`
-    console.log("[v0] Customer WebSocket: Connecting to", url)
 
     try {
       const ws = new WebSocket(url)
 
       ws.onopen = () => {
-        console.log("[v0] Customer WebSocket: Connected to job", serviceRequestId)
         connectionsRef.current.set(serviceRequestId, ws)
         setActiveConnections(new Map(connectionsRef.current))
       }
 
       ws.onmessage = (event) => {
-        console.log("[v0] Customer WebSocket: Received message:", event.data)
         try {
           const message = JSON.parse(event.data)
           setMessages((prev) => [...prev, message])
           setLastMessage(message)
 
           if (message.type === "Job_Accepted") {
-            console.log("[v0] Customer WebSocket: Job accepted!", message)
             playNotificationSound()
             const acceptedPayload = message as JobAcceptedPayload
             setJobAccepted(acceptedPayload)
 
-            // Store job data (OTP, worker details) persistently - keyed by job_id
+            // Store job data (OTP, worker details) persistently
             const jobData: StoredJobData = {
               job_id: acceptedPayload.job_id,
               otp: acceptedPayload.Otp,
@@ -456,38 +446,29 @@ export function CustomerJobWebSocketProvider({ children }: { children: ReactNode
             }
             setStoredJobData((prev) => {
               const newMap = new Map(prev)
-              // Store under job_id AND service_request_id (they may differ)
               newMap.set(acceptedPayload.job_id, jobData)
-              // Also look up the current serviceRequestId from connectionsRef if available
-              connectionsRef.current.forEach((_, srId) => {
-                if (!newMap.has(srId)) {
-                  newMap.set(srId, { ...jobData, job_id: srId })
-                }
-              })
               saveJobDataToStorage(newMap)
               return newMap
             })
           } else if (message.type === "JOB_CANCELLED") {
-            console.log("[v0] Customer WebSocket: Job cancelled!", message)
             playNotificationSound()
             setJobCancellation(message as JobCancelledPayload)
           }
         } catch (error) {
-          console.error("[v0] Customer WebSocket: Parse error:", error)
+          console.error("Customer WebSocket: Parse error:", error)
         }
       }
 
       ws.onclose = () => {
-        console.log("[v0] Customer WebSocket: Disconnected from job", serviceRequestId)
         connectionsRef.current.delete(serviceRequestId)
         setActiveConnections(new Map(connectionsRef.current))
       }
 
-      ws.onerror = (error) => {
-        console.error("[v0] Customer WebSocket: Error:", error)
+      ws.onerror = () => {
+        // Silent error handling
       }
     } catch (error) {
-      console.error("[v0] Customer WebSocket: Failed to connect:", error)
+      console.error("Customer WebSocket: Failed to connect:", error)
     }
   }, [])
 

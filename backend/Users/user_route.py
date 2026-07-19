@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from sqlalchemy.orm import Session
 from .usermodels import (
     userSignup, Servie_request, Add_Address, MakePayment,
-    Canceljob, review, Update_Address, Update_user_details, generate_txn_id
+    Canceljob, review, Update_Address, Update_user_details, generate_txn_id,delete_address
 )
 from utilities.database import (
     get_db, Users, ServiceRequest, Locations,
@@ -205,7 +205,7 @@ async def get_otp(job_id: int, db: Session = Depends(get_db), current_user=Depen
     }
 
 
-@router.post("/users/CancellJob")
+@router.post("/CancellJob")
 async def cancel_job(inp: Canceljob, current_user=Depends(get_current_user)):
     res = await cancel_job_by_user(inp.job_id)
     return {"message": res}
@@ -280,6 +280,14 @@ def payment_history(db: Session = Depends(get_db), current_user=Depends(get_curr
     ).all()
     return p if p else []
 
+@router.delete("/delete-address")
+def Delete_address(db:Session=Depends(get_db),inp=delete_address,current_user=Depends(get_current_user)):
+    records=db.query(Locations).filter(Locations.user_id==current_user.id and Locations.id==inp)
+    if not records:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail="Record Not Found")
+    db.delete(records)
+    db.commit()
+    return {"message":"Address Deleted Successfully"}
 
 @router.post("/AIChat")
 def ai_chat(query: str, current_user=Depends(get_current_user)):

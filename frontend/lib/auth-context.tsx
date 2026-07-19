@@ -105,7 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const result: LoginResponse = await apiLogin(email, password, role)
       storeToken(result.access_token)
 
-      // Fetch user profile after login
+      // Fetch user profile after login based on role
       let profile: UserProfile | null = null
       try {
         if (role === "customer") {
@@ -113,21 +113,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else if (role === "worker") {
           profile = await getWorkerProfile()
         }
-      } catch {
+        // Admin doesn't have a profile endpoint, use email
+      } catch (error) {
+        console.error("Failed to fetch profile after login:", error)
         // Profile fetch failed, use email as name
       }
 
       const user: User = {
-        id: result.user_id || 0,
+        id: result.user_id || result.worker_id || 0,
         email,
         name: profile?.name || email.split("@")[0],
         phone: profile?.phone,
         dob: profile?.dob,
         role,
-        workerId: result.worker_id, // CRITICAL: This is used for worker WebSocket
+        workerId: role === "worker" ? result.worker_id : undefined, // CRITICAL: This is used for worker WebSocket
       }
 
-      console.log("[v0] Login successful, user:", user)
       saveAuthState(user, result.access_token, role)
     },
     [saveAuthState],

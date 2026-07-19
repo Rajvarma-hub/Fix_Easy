@@ -9,7 +9,7 @@ stop_event = threading.Event()
 
 def start_consumer(stop_event: threading.Event, app_loop: asyncio.AbstractEventLoop):
     consumer = Consumer({
-        "bootstrap.servers": "kafka:9092",
+        "bootstrap.servers": "localhost:9092",
         "group.id": "fixeasy-job-consumer",
         "auto.offset.reset": "earliest",
         "enable.auto.commit": False
